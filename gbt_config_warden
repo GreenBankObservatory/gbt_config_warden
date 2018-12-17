@@ -40,7 +40,7 @@ fi
 if [ -z "${2+x}" ]; then
     die "usage: isdirty REPO_PATH MAILTO"
 else
-    mailto="${2}"
+    mailto=("${@:2}")
 fi
 
 # cd to given path
@@ -58,10 +58,10 @@ if [ -n "$(git status --untracked-files=no --porcelain)" ]; then
     git status --untracked-files=no --short >> "${body_file}"
     git diff > "${diff_file}"
     # Send email
-    echo "" | mutt -s "GBT Config Warden Report: DIRTY" -i "${body_file}" -a "${diff_file}" -- "${mailto}"
+    echo "" | mutt -s "GBT Config Warden Report: DIRTY" -i "${body_file}" -a "${diff_file}" -- "${mailto[@]}"
 # If the repo is clean...
 else
     echo "By some miracle, ${repo} is clean!" >> "${body_file}"
     git log -1 --format='Last commit: %cd by %an' >> "${body_file}"
-    echo "" | mutt -s "GBT Config Warden Report: CLEAN" -i "${body_file}" -- "${mailto}"
+    echo "" | mutt -s "GBT Config Warden Report: CLEAN" -i "${body_file}" -- "${mailto[@]}"
 fi
