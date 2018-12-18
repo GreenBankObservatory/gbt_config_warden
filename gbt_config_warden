@@ -2,7 +2,7 @@
 
 ### GBT Config Warden
 #
-# usage: gbt_config_warden REPO_PATH RECIPIENT [RECIPIENT ...]
+# usage: gbt_config_warden REPO_PATH [RECIPIENT ...]
 #
 # A simple tool, intended to be run as a cron job, for checking on the status
 # of the GBT config repository. If there are files that have been modified
@@ -41,17 +41,13 @@ die() {
 
 # Handle CLI
 if [ -z "${1+x}" ]; then
-    die "usage: gbt_config_warden REPO_PATH RECIPIENT [RECIPIENT ...]"
+    die "usage: gbt_config_warden REPO_PATH [RECIPIENT ...]"
 else
     repo="${1}"
 fi
 
-if [ -z "${2+x}" ]; then
-    die "usage: gbt_config_warden REPO_PATH RECIPIENT [RECIPIENT ...]"
-else
-    # Set mailto array to contain all arguments after the first
-    mailto=("${@:2}")
-fi
+# All remaining arguments are treated as email recipients
+recipients=("${@:2}")
 
 # cd to given path
 cd "${repo}"
@@ -69,15 +65,21 @@ if [ -n "$(git status --untracked-files=no --porcelain)" ]; then
         echo "${last_commit_info}"
         echo -e "\n--- Current status ---\n"
         git status --untracked-files=no --short
-        echo "--- Differences since last commit ---"
+        echo -e "\n--- Differences since last commit ---\n"
         git diff
     } > "${body_file}"
-    # Send email
-    mutt -s "GBT Config Warden Report: DIRTY" -- "${mailto[@]}" < "${body_file}"
-# If the repo is clean...
+    # If we have recipients, send them an email
+    if [ -n "${recipients+x}" ]; then
+        # Send email
+        mutt -s "GBT Config Warden Report: DIRTY" -- "${recipients[@]}" < "${body_file}"
+    # Otherwise just print to stdout
+    else
+        cat "${body_file}"
+    fi
+    # If the repo is clean...
 else
     # These are for debugging only; they will spawn a cron email that goes to
-    # whatever RECIPIENT [RECIPIENT ...] is in the crontab
+    # whatever MAILTO is in the crontab
     echo "By some miracle, ${repo} is clean!"
     echo "${last_commit_info}"
 fi
