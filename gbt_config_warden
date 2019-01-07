@@ -71,9 +71,17 @@ if [ -n "$(git status --untracked-files=no --porcelain)" ]; then
     # If we have recipients, send them an email
     if [ -n "${recipients+x}" ]; then
         # Send email
-        mutt -s "GBT Config Warden Report: DIRTY" -- "${recipients[@]}" < "${body_file}"
+        mutt -s "GBT Config Warden Report (${repo}): DIRTY" -- "${recipients[@]}" < "${body_file}"
     # Otherwise just print to stdout
     else
         cat "${body_file}"
     fi
+    # Use 1 as the exit code for "dirty"
+    exit 1
+# If the repo is clean...
+else
+    # These are for debugging only; they will spawn a cron email that goes to
+    # whatever MAILTO is in the crontab
+    echo "By some miracle, ${repo} is clean!"
+    echo "${last_commit_info}"
 fi
