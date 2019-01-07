@@ -76,10 +76,4 @@ if [ -n "$(git status --untracked-files=no --porcelain)" ]; then
     else
         cat "${body_file}"
     fi
-    # If the repo is clean...
-else
-    # These are for debugging only; they will spawn a cron email that goes to
-    # whatever MAILTO is in the crontab
-    echo "By some miracle, ${repo} is clean!"
-    echo "${last_commit_info}"
 fi
