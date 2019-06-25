@@ -25,8 +25,10 @@ def email(subject, text):
     message = EmailMessage()
     message["Subject"] = subject
     # message["To"] = "GBO SDD <sddev@nrao.edu>"
-    message["To"] = ",".join(check_output(["git", "config", "--get-all", "gbtconfig.recipient"]).split("\n"))
-    message["From"] = check_output(["git", "config", "--get", "gbtconfig.replyto"])
+    message["To"] = ",".join(
+        check_output(["git", "config", "--get-all", "gbtconfig.recipient"]).split("\n")
+    )
+    message["From"] = check_output(["git", "config", "--get", "gbtconfig.from"])
     message["Reply-To"] = check_output(["git", "config", "--get", "gbtconfig.replyto"])
 
     message.set_content(text)
