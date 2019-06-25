@@ -1,0 +1,17 @@
+#!/bin/bash
+
+### Simple wrapper around post-commit.py to avoid RHEL6 issues ###
+
+set -e
+
+get_rhel_version() {
+    lsb_release -i -r | grep Release | awk '{print $2}' | awk -F . '{print $1}'
+}
+
+scriptdir="$(dirname "$(readlink -f "$0")")"
+if [ "$(get_rhel_version)" == 6 ]; then
+    echo "ERROR: You must commit from a non-RHEL6 host!" >&2
+    exit 1
+else
+    python3 "$scriptdir/post_commit.py"
+fi
