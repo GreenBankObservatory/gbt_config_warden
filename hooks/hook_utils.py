@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from email.message import EmailMessage
-from pathlib import Path
 import getpass
 import os
 import smtplib
@@ -14,7 +13,6 @@ import traceback
 import pytz
 
 # Get the full path of the repo executing this hook
-GBT_CONFIG_PATH = Path(__file__).resolve().parent.parent.parent
 
 NOW = datetime.now(pytz.timezone("US/Eastern")).strftime("%Y-%m-%d %H:%M %Z")
 
@@ -83,3 +81,4 @@ def derive_git_author():
 
 # Set to True for testing; this avoids sending emails
 DEBUG = check_output(["git", "config", "--get", "gbtconfig.debug"]) == "true"
+GBT_CONFIG_PATH = check_output(["git", "rev-parse", "--show-toplevel"])
