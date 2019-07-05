@@ -41,7 +41,7 @@ def main():
         proc_file_reminder = ""
 
     subject = (
-        f"GBT Config Warden: User '{user}' has committed files to {GBT_CONFIG_PATH}"
+        f"GBT Config Warden: Author '{git_author_name}' has committed files to {GBT_CONFIG_PATH}"
     )
     email_text = (
         f"User '{user}' has committed code as author '{git_author_name}' to "
