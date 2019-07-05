@@ -22,7 +22,6 @@ def email(subject, text):
 
     message = EmailMessage()
     message["Subject"] = subject
-    # message["To"] = "GBO SDD <sddev@nrao.edu>"
     message["To"] = ",".join(
         check_output(["git", "config", "--get-all", "gbtconfig.recipient"]).split("\n")
     )
@@ -63,13 +62,7 @@ def derive_user():
 def derive_branch():
     """Derive the git branch of the current repository"""
 
-    try:
-        branch = check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"])
-    except subprocess.CalledProcessError as error:
-        raise ValueError(
-            "Could not determine current branch! "
-            "Please contact sddev@nrao.eu with this error message!"
-        ) from error
+    branch = check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"])
     return branch
 
 
