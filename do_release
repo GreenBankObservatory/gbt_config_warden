@@ -7,25 +7,24 @@ set -o nounset
 # Pipelines exit with rightmost non-zero exit code, or zero if fully successful
 set -o pipefail
 
+scriptdir="$(dirname "$(readlink -f "$0")")"
 if [[ -n "${1-}" ]]; then
-    installation_directory="$1"
+    source_hooks_path="$1"
 else
-    installation_directory=/home/gbt1/gbt_config_warden/hooks
+    source_hooks_path="$(readlink -f "$scriptdir/hooks")"
 fi
 
-current_dir="$(basename "$(pwd)")"
-
-scriptdir="$(dirname "$(readlink -f "$0")")"
 config_repo_path="$(git rev-parse --show-toplevel)"
-dest_hook_path="$config_repo_path/.git/hooks"
+
+dest_hooks_path="$config_repo_path/.git/hooks"
 
 if [[ "$(basename "$config_repo_path")" != "config" ]] && [[ "$(basename "$config_repo_path")" != "gbt_config" ]]; then
-    echo "Must be run from within a gbtconfig repository!" >&2
+    echo "Must be run from within a gbtconfig repository! Current repo: $config_repo_path" >&2
     exit 1
 fi
 
-for source_file in $(find "$installation_directory" -maxdepth 1 -type f); do
-    dest_file="$dest_hook_path/$(basename "$source_file")"
+for source_file in $(find "$source_hooks_path" -maxdepth 1 -type f); do
+    dest_file="$dest_hooks_path/$(basename "$source_file")"
     if [[ -e "$dest_file" ]]; then
         echo rm "$dest_file"
         if [[ -z "${DRYRUN-}" ]]; then
