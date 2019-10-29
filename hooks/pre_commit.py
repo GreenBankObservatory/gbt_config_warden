@@ -3,6 +3,7 @@
 See README.md for notes on testing
 """
 
+import os
 import sys
 import traceback
 
@@ -20,10 +21,14 @@ from hook_utils import (
 # The current "release" branch. This will need to be changed on each M&C release
 PRIMARY_BRANCH = check_output(["git", "config", "--get", "gbtconfig.releasebranch"])
 # This are a whitelist of users that are allowed to commit to the non-primary branch
-WHITELISTED_USERS = check_output(["git", "config", "--get-all", "gbtconfig.whitelistuser"]).split("\n")
+WHITELISTED_USERS = check_output(
+    ["git", "config", "--get-all", "gbtconfig.whitelistuser"]
+).split("\n")
 # These are authors that are not allowed for commits. These are bad because
 # it hides information about who actually committed
-BLACKLISTED_AUTHORS = check_output(["git", "config", "--get-all", "gbtconfig.blacklistauthor"]).split("\n")
+BLACKLISTED_AUTHORS = check_output(
+    ["git", "config", "--get-all", "gbtconfig.blacklistauthor"]
+).split("\n")
 
 
 def perform_precommit_sanity_checks(git_author_name, user, branch):
@@ -52,7 +57,6 @@ def perform_precommit_sanity_checks(git_author_name, user, branch):
 
 def main():
     """CLI Main"""
-
     git_author_name = derive_git_author()
     user = derive_user()
     branch = None
@@ -92,4 +96,26 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    hook_name = "pre-commit"
+    try:
+        if os.environ.get("GBT_CONFIG_SKIP_HOOKS", None) is None:
+            main()
+        else:
+            user = derive_user()
+            email(
+                subject=f"GBT Config Warden: {user} has skipped hook {hook_name}",
+                text=f"...hopefully for a good reason",
+            )
+            print(
+                f"Skipping {hook_name} hook. Hopefully you have a good reason for doing this.",
+                file=sys.stderr,
+            )
+    except Exception as error:
+        email(
+            subject=f"GBT Config Warden: error in commit hook {hook_name}",
+            text=f"{hook_name} failed with the following error:\n\n{traceback.format_exc()}",
+        )
+        raise ValueError(
+            "Hook failed! COMMIT HAS FAILED! To skip this hook, re-run with "
+            "GBT_CONFIG_SKIP_HOOKS=true"
+        ) from error

@@ -17,7 +17,7 @@ Testing notes:
 
 1. Don't test in the production repo. Do a `$ cp -a` of the production GBT config and test there
 
-2. Change `gbtconfig.debug = true` via `git config -e`
+2. Change `gbtconfig.debug = true` via `git config -e`. This will prevent emails from being sent (don't worry; they'll be printed to `stdout` instead)
 
 3. Make changes
 

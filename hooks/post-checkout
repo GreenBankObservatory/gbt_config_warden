@@ -1,6 +1,6 @@
 #!/bin/bash
 
-### Simple wrapper around post-commit.py to avoid RHEL6 issues ###
+### Simple wrapper around post-checkout.py to avoid RHEL6 issues ###
 
 set -e
 
@@ -10,8 +10,8 @@ get_rhel_version() {
 
 scriptdir="$(dirname "$(readlink -f "$0")")"
 if [ "$(get_rhel_version)" == 6 ]; then
-    echo "ERROR: You must commit from a non-RHEL6 host!" >&2
+    echo "ERROR: You must checkout from a non-RHEL6 host!" >&2
     exit 1
 else
-    python3 "$scriptdir/post_commit.py" "$@"
+    python3 "$scriptdir/post_checkout.py" "$@"
 fi

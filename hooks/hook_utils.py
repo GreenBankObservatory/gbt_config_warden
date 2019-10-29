@@ -69,9 +69,67 @@ def derive_branch():
 def derive_git_author():
     """Derive the current git author"""
 
-    return os.environ.get("GIT_AUTHOR_NAME", None)
+    author = os.environ.get("GIT_AUTHOR_NAME", None)
+    if not author:
+        author = check_output(["git", "config", "user.name"])
+
+    return author
+
+
+def get_status():
+    status = check_output(["git", "status", "--untracked-files=no", "--short"])
+    if not status:
+        return "<Clean status>"
+    return status
+
+
+def get_files_in_prev_commit():
+    return check_output(["git", "diff", "--name-only", "HEAD~"])
+
+
+def get_proc_file_reminder(files_in_prev_commit):
+    proc_files_changed = [
+        f"  * {line}"
+        for line in files_in_prev_commit.split("\n")
+        if line.strip().endswith("Proc.conf")
+    ]
+    proc_files_changed_str = "\n".join(proc_files_changed)
+    if proc_files_changed:
+        proc_file_reminder = (
+            "NOTE: One or more *Proc.conf files has changed! "
+            "Please consider doing a $ tm systemstop && tm systemstart on affected host(s)\n"
+            f"{proc_files_changed_str}"
+            "\n\n"
+        )
+    else:
+        proc_file_reminder = ""
+
+    return proc_file_reminder
+
+
+def get_ref_name(hash):
+    try:
+        full_ref_name = check_output(
+            ["git", "describe", hash, "--all", "--exact-match"]
+        )
+        return full_ref_name.split("/")[1]
+    except Exception:
+        print(f"Warning: failed to derive branch name for {hash!r}", file=sys.stderr)
+        return hash
+
+
+def get_changed_filenames(ref1, ref2):
+    return check_output(["git", "diff", "--name-only", ref1, ref2])
+
+
+def get_changes_since_last_commit():
+    return check_output(["git", "diff", "HEAD~"])
+
+def get_commit_log():
+    return check_output(["git", "log", "HEAD^..HEAD"])
 
 
 # Set to True for testing; this avoids sending emails
 DEBUG = check_output(["git", "config", "--get", "gbtconfig.debug"]) == "true"
+# Repo path
 GBT_CONFIG_PATH = check_output(["git", "rev-parse", "--show-toplevel"])
