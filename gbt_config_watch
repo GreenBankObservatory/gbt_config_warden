@@ -1,0 +1,185 @@
+#! /usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""Interprets the output of """
+
+
+import argparse
+import csv
+import logging
+import os
+from shutil import copyfile
+import subprocess
+import sys
+from pathlib import Path
+
+from cwp_logging import init_logging
+
+LOGGER = logging.getLogger(os.path.basename(__file__))
+FILE_LOGGER = logging.getLogger(f"{os.path.basename(__file__)}_file")
+print(f"{__file__=}")
+print(f"{LOGGER=}")
+
+
+def inotifywait(path):
+    n = subprocess.Popen(
+        ["inotifywait", "--monitor", "--csv", "--event", "modify", path],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    return n.stdout
+
+
+def check_output(cmd_list, *args, strip=True, strict=True, **kwargs):
+    try:
+        result = subprocess.check_output(cmd_list, *args, text=True, **kwargs)
+    except subprocess.CalledProcessError as error:
+        if strict or error.stderr:
+            raise
+        result = error.stdout
+
+    if strip:
+        result = result.strip()
+    return result
+
+
+def git_diff(actual_path, mirror_path=None):
+    # If given mirror_path, have git just compare these without regard to repo/index
+    # We do this (instead of using diff directly) to maintain syntactical
+    # conformity with the "normal" git diff, below
+    if mirror_path:
+        return check_output(
+            ["git", "diff", "--no-index", "--", mirror_path, actual_path], strict=False
+        )
+
+    # Derive working directory from the actual path. This doesn't need to
+    # be in the root of the repo, just somewhere inside it so that
+    # git can figure out what to do
+    cwd = os.path.dirname(actual_path)
+    # TODO: Not sure if I want this check yet
+    # try:
+    #     check_output(["git", "ls-files", "--error-unmatch", "--", actual_path], cwd=cwd)
+    # except subprocess.CalledProcessError:
+    #     # TODO: Add git path
+    #     print(f"File {actual_path} has never been committed to git!")
+    return check_output(["git", "diff", "--", actual_path], cwd=cwd)
+
+
+def dostuff(file, mirror_path=None, write=False, output=None):
+    csvreader = csv.reader(file)
+    for watched_filename, event_names_csv, event_filename in csvreader:
+        # This is actually comma-separated itself, so we need to split it ourselves.
+        # See EVENT_NAMES in inotifywait man page
+        event_names = event_names_csv.split(",")
+        LOGGER.debug(f"{watched_filename=}")
+        LOGGER.debug(f"{event_names=}")
+        LOGGER.debug(f"{event_filename=}")
+        if mirror_path:
+            blurb = f"mirror at {str(actual_file_path.parent.absolute())!r}"
+        else:
+            git_repo_path = check_output(
+                ["git", "rev-parse", "--show-toplevel"], cwd=actual_file_path.parent
+            )
+            blurb = f"git at {git_repo_path!r}"
+        LOGGER.info(f"File {event_filename!r} has changed (vs {blurb})!")
+        actual_file_path = Path(watched_filename, event_filename)
+        if mirror_path:
+            mirror_file_path = Path(mirror_path, event_filename)
+            if not actual_file_path.exists():
+                LOGGER.error(f"Aw shucks, {actual_file_path} no longer exists!")
+            else:
+                if not mirror_file_path.exists():
+                    if write:
+                        LOGGER.info(
+                            f"Mirror of {actual_file_path} ({mirror_file_path}) "
+                            "does not exist; copying now"
+                        )
+                        copyfile(actual_file_path, mirror_file_path)
+                    else:
+                        LOGGER.debug(
+                            f"Skipping copy of {actual_file_path} to "
+                            f"{mirror_file_path} due to write=False"
+                        )
+
+            diffs = git_diff(
+                actual_path=str(actual_file_path.absolute()),
+                mirror_path=str(mirror_file_path.absolute()),
+            )
+        else:
+            diffs = git_diff(str(actual_file_path.absolute()))
+
+        if diffs:
+
+            FILE_LOGGER.info(
+                f"A change has been made to {actual_file_path}:\n"
+                f"{diffs}\n{'-' * 80}\n"
+            )
+
+        if mirror_file_path:
+            if write:
+                # update the mirror
+                LOGGER.info(
+                    f"Updating mirror! Copying {actual_file_path} to {mirror_file_path}"
+                )
+                copyfile(actual_file_path, mirror_file_path)
+            else:
+                LOGGER.debug(
+                    f"Skipping mirror update of {actual_file_path} to "
+                    f"{mirror_file_path} due to write=False"
+                )
+
+
+def main():
+    args = parse_args()
+    init_logging(args.output)
+
+    LOGGER.debug("TEST")
+    # logging.getLogger('root').setLevel(logging.DEBUG)
+    LOGGER.setLevel(logging.DEBUG)
+    print(f"{LOGGER.handlers=}")
+
+    if args.path:
+        with open(args.path) as file:
+            dostuff(
+                file, mirror_path=args.mirror_path, write=args.write, output=args.output
+            )
+    else:
+        # TODO: Make optional? If stdin is detected...
+        # dostuff(sys.stdin)
+        # Run inotifywait ourselves, and pipe the output to dostuff
+        dostuff(
+            inotifywait(args.actual_path),
+            mirror_path=args.mirror_path,
+            output=args.output,
+            write=args.write,
+        )
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        "--path",
+        help="The path of a CSV file to read. If not given, "
+        "stdin will be used. Useful for testing.",
+    )
+    parser.add_argument("--actual-path")
+    parser.add_argument(
+        "--mirror-path", help="The path to the mirror we are diff'ing against"
+    )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Enables updating the mirror-path, if given. If this is not given "
+        "then no mirror files will be altered (--output will still create files "
+        "even if this isn't given, however)",
+    )
+    parser.add_argument(
+        "--output", help="The path to the output file that diffs will be written to"
+    )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    main()

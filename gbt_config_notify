@@ -1,0 +1,76 @@
+#! /usr/bin/env python
+# -*- coding: utf-8 -*-
+
+"""docstring"""
+
+
+from email.message import EmailMessage
+import argparse
+from datetime import datetime
+import shutil
+import smtplib
+import socket
+import sys
+import traceback
+
+DEBUG = True
+
+
+def email(subject, text, to, from_email, reply_to=None, smtp_server="smtp.gb.nrao.edu"):
+    """Send an email to SDD with given subject and text"""
+
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["To"] = to
+    message["From"] = from_email
+    message["Reply-To"] = reply_to if reply_to else from_email
+
+    message.set_content(text)
+    if not DEBUG:
+        try:
+            smtplib.SMTP(smtp_server).send_message(message)
+        except socket.gaierror:
+            full_traceback = traceback.format_exc()
+            print(
+                f"Failed to send email to '{message['To']}'. Please manually send "
+                f"an email to '{message['To']}' to let them know that this is broken. "
+                "Include the following information:\n"
+                f"{'='*80}\n{full_traceback}\n{'='*80}",
+                file=sys.stderr,
+            )
+    else:
+        print("\nThe following email would have been sent if DEBUG were False:")
+        print("+" * 80)
+        print(message)
+        print("+" * 80)
+
+
+def cwp_email(log_path):
+    with open(log_path) as log_file:
+        # TODO: Add more details
+        body = log_file.read()
+
+    now = datetime.now()
+    shutil.move(log_path, f"{log_path}.{now}.log")
+
+
+    email(
+        subject="Stuff has changed!", text=body, to="to_email", from_email="from_email"
+    )
+
+
+def main():
+    args = parse_args()
+    cwp_email(args.log_path)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument("log_path")
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    main()
