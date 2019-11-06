@@ -1,0 +1,443 @@
+#! /usr/bin/env python3
+
+"""Detects changes to GBT Config area and writes them to a file"""
+
+
+import argparse
+from collections import deque, namedtuple
+import csv
+import logging
+import os
+import shutil
+import subprocess
+from pathlib import Path
+import sys
+
+from gbt_config_logging import init_logging
+
+LOGGER = logging.getLogger(os.path.basename(__file__))
+FILE_LOGGER = logging.getLogger(f"{os.path.basename(__file__)}_file")
+
+EVENT_NAMES = (
+    "ACCESS",
+    "MODIFY",
+    "ATTRIB",
+    "CLOSE_WRITE",
+    "CLOSE_NOWRITE",
+    "CLOSE",
+    "OPEN",
+    "MOVED_TO",
+    "MOVED_FROM",
+    "MOVE",
+    "MOVE_SELF",
+    "CREATE",
+    "DELETE",
+    "DELETE_SELF",
+    "UNMOUNT",
+)
+EVENTS = namedtuple("EVENTS", EVENT_NAMES)(*EVENT_NAMES)
+
+LAST_ACTUAL_MOVED_FROM = None
+LAST_MIRROR_MOVED_FROM = None
+
+
+def inotifywait(path, events):
+    """Spawn inotifywait process; return its stdout pipe"""
+    # Build list of format ["--event", <event>, "--event", <event>, ...]
+    event_args = [arg for event in events for arg in ("--event", event)]
+    args = ["inotifywait", "--monitor", "--csv", *event_args, path]
+    LOGGER.debug(f"Spawning: {args}")
+    n = subprocess.Popen(args, stdout=subprocess.PIPE, text=True)
+    return n.stdout
+
+
+def check_output(cmd_list, *args, strip=True, strict=True, **kwargs):
+    """Slightly fancier version of subprocess.check_output"""
+
+    try:
+        result = subprocess.check_output(cmd_list, *args, text=True, **kwargs)
+    except subprocess.CalledProcessError as error:
+        if strict or error.stderr:
+            raise
+        result = error.stdout
+
+    if strip:
+        result = result.strip()
+    return result
+
+
+def get_is_tracked(actual_path):
+    cwd = os.path.dirname(actual_path)
+    try:
+        check_output(["git", "ls-files", "--error-unmatch", "--", actual_path], cwd=cwd)
+    except subprocess.CalledProcessError:
+        # TODO: Add git path
+        LOGGER.debug(f"File {actual_path} has never been committed to git!")
+        return False
+    return True
+
+def get_git_diff(actual_path, mirror_path=None):
+    """Perform git diff on given path(s)"""
+
+    # If given mirror_path, have git just compare these without regard to repo/index
+    # We do this (instead of using diff directly) to maintain syntactical
+    # conformity with the "normal" git diff, below
+    if mirror_path:
+        return check_output(
+            ["git", "diff", "--no-index", "--", mirror_path, actual_path], strict=False
+        )
+
+    # Derive working directory from the actual path. This doesn't need to
+    # be in the root of the repo, just somewhere inside it so that
+    # git can figure out what to do
+    cwd = os.path.dirname(actual_path)
+    return check_output(["git", "diff", "--", actual_path], cwd=cwd)
+
+
+def diff_mirror_against_actual(actual_file_path, mirror_file_path, ignore_clean):
+    diffs = get_git_diff(
+        actual_path=str(actual_file_path.absolute()),
+        mirror_path=str(mirror_file_path.absolute()),
+    )
+
+    if diffs:
+        LOGGER.info(
+            f"Detected differences between actual file {str(actual_file_path)!r} "
+            f"and mirror file {str(mirror_file_path)!r}"
+        )
+        log_file_diff = True
+        if ignore_clean:
+            is_tracked = get_is_tracked(actual_file_path)
+            if is_tracked:
+                git_diffs = get_git_diff(str(actual_file_path.absolute()))
+                if git_diffs:
+                    LOGGER.debug(f"{str(actual_file_path)!r} HAS changed vs git!")
+                else:
+                    LOGGER.info(
+                        f"{str(actual_file_path)!r} has NOT changed vs git! Skipping diff log due "
+                        "to ignore_clean=True"
+                    )
+                    log_file_diff = False
+        else:
+            LOGGER.debug(
+                f"Not considering differences of {str(actual_file_path)!r} "
+                "vs git due to ignore_clean=False"
+            )
+
+        if log_file_diff:
+            LOGGER.debug(
+                f"Logging diff between {str(actual_file_path)!r} and "
+                f"{str(mirror_file_path)!r} to file!"
+            )
+            FILE_LOGGER.info(
+                f"A change has been made to {str(actual_file_path)!r}\n"
+                f"{diffs}\n{'-' * 80}\n"
+            )
+        else:
+            LOGGER.debug(f"Skipping diff log for {str(actual_file_path)!r}")
+    else:
+        LOGGER.debug(
+            f"No differences between actual file {str(actual_file_path)!r} "
+            f"and mirror file {str(mirror_file_path)!r}"
+        )
+    return diffs
+
+
+def update_mirror(actual_file_path, mirror_file_path, write):
+    if write:
+        # Since we have processed the diffs between the mirror and actual,
+        # we now need to update the mirror so the process can be repeated
+        try:
+            shutil.copyfile(actual_file_path, mirror_file_path)
+        except FileNotFoundError:
+            LOGGER.exception(
+                f"Failed to move {str(actual_file_path)!r} to {str(mirror_file_path)!r}"
+            )
+        else:
+            LOGGER.info(
+                f"Updated mirror! Copied {str(actual_file_path)!r} to {str(mirror_file_path)!r}"
+            )
+    else:
+        LOGGER.debug(
+            f"Skipping mirror update of {str(actual_file_path)!r} to "
+            f"{str(mirror_file_path)!r} due to write=False"
+        )
+
+
+def handle_created_file(
+    actual_file_path, mirror_file_path, write, ignore_clean, check_for_changes=False
+):
+    update_mirror(actual_file_path, mirror_file_path, write)
+    # Currently a hack to catch certain types of file creations that seem to be
+    # updates rather than creates. fv does this, for example
+    actually_created = True
+    if check_for_changes:
+        diff = handle_changed_file(
+            actual_file_path, mirror_file_path, ignore_clean, write
+        )
+        if diff:
+            actually_created = False
+
+    if actually_created:
+        FILE_LOGGER.info(
+            f"A change has been made to {str(actual_file_path)!r}\n"
+            f"It has been created\n{'-' * 80}\n"
+        )
+
+
+def handle_deleted_file(actual_file_path, mirror_file_path, write):
+    if write:
+        try:
+            os.remove(mirror_file_path)
+        except FileNotFoundError:
+            LOGGER.exception(f"Failed to delete file {str(mirror_file_path)!r}")
+        else:
+            LOGGER.info(f"Deleted file {str(mirror_file_path)!r}")
+    else:
+        LOGGER.debug(
+            f"Skipping deletion of file {str(mirror_file_path)!r} due to write=False"
+        )
+
+    FILE_LOGGER.info(
+        f"A change has been made to {str(actual_file_path)!r}\n"
+        f"It has been deleted\n{'-' * 80}\n"
+    )
+
+
+def handle_changed_file(actual_file_path, mirror_file_path, ignore_clean, write):
+    LOGGER.debug(
+        "Checking for differences between "
+        f"actual file {str(actual_file_path)!r} "
+        f"and mirror file {str(mirror_file_path)!r}"
+    )
+
+    if not actual_file_path.exists():
+        LOGGER.error(f"Aw shucks, {str(actual_file_path)!r} does not exist!")
+        FILE_LOGGER.debug(
+            f"File {str(actual_file_path)!r} does not exist! Probably deleted or moved "
+            "before this diff was triggered"
+        )
+        return
+
+    if not mirror_file_path.exists():
+        LOGGER.info(
+            f"Mirror of {str(actual_file_path)!r} ({str(mirror_file_path)!r}) "
+            "does not exist; copying now"
+        )
+        update_mirror(actual_file_path, mirror_file_path, write)
+
+    diff = diff_mirror_against_actual(actual_file_path, mirror_file_path, ignore_clean)
+    if diff:
+        update_mirror(actual_file_path, mirror_file_path, write)
+    else:
+        LOGGER.debug(
+            f"Skipping mirror update of {str(actual_file_path)!r} to "
+            f"{str(mirror_file_path)!r} because they have not diverged"
+        )
+        FILE_LOGGER.debug(
+            f"A change has been made to {str(actual_file_path)!r}\n"
+            "However, it has not diverged from the mirror. This might be because "
+            "the modification did not actually change anything, or it could be due "
+            f"to a race condition.\n{'-' * 80}\n"
+        )
+
+    return diff
+
+
+def handle_moved_from(actual_file_path, mirror_file_path):
+    global LAST_ACTUAL_MOVED_FROM
+    global LAST_MIRROR_MOVED_FROM
+    LAST_ACTUAL_MOVED_FROM = actual_file_path
+    LOGGER.debug(f"Set LAST_ACTUAL_MOVED_FROM={str(LAST_ACTUAL_MOVED_FROM)!r}")
+    LAST_MIRROR_MOVED_FROM = mirror_file_path
+    LOGGER.debug(f"Set LAST_MIRROR_MOVED_FROM={str(LAST_MIRROR_MOVED_FROM)!r}")
+
+
+def handle_moved_to(actual_file_path, mirror_file_path, write):
+    if write:
+        LOGGER.info(
+            f"File {str(LAST_ACTUAL_MOVED_FROM)!r} has been moved to {str(actual_file_path)!r}"
+        )
+        update_mirror(actual_file_path, mirror_file_path, write)
+
+        try:
+            os.remove(mirror_file_path)
+        except FileNotFoundError:
+            LOGGER.exception(f"Failed to delete mirror file {str(mirror_file_path)!r}")
+        else:
+            LOGGER.info(f"Deleted mirror file {str(mirror_file_path)!r}")
+
+        LOGGER.debug(
+            f"Mirror file {str(LAST_MIRROR_MOVED_FROM)!r} "
+            f"has been moved to {str(mirror_file_path)!r}"
+        )
+    else:
+        LOGGER.debug(f"Skipped updating mirror due to presence of write=False")
+
+    FILE_LOGGER.info(
+        f"A change has been made to {str(LAST_ACTUAL_MOVED_FROM)!r}\n"
+        f"It has been moved to {str(actual_file_path)!r}\n{'-' * 80}\n"
+    )
+
+
+def git_config_watch(file, mirror_path, write=False, ignore_clean=True):
+    """For each line in CSV, examine differences between it and mirror/git and write to file"""
+
+    csvreader = csv.reader(file)
+    for watched_filename, event_names, event_filename in csvreader:
+        FILE_LOGGER.debug(
+            f"RECEIVED INOTIFYWAIT EVENT(S): watched_filename={watched_filename}, "
+            f"event_names={event_names}, event_filename={event_filename}"
+        )
+        LOGGER.debug(
+            f"RECEIVED INOTIFYWAIT EVENT(S): watched_filename={watched_filename}, "
+            f"event_names={event_names}, event_filename={event_filename}"
+        )
+        events = event_names.split(",")
+        actual_file_path = Path(watched_filename, event_filename).absolute()
+        mirror_file_path = Path(mirror_path, event_filename).absolute()
+        # FILE_LOGGER.info(f"!!!A change has been made to {str(actual_file_path)!r}")
+        if EVENTS.MOVED_FROM in events:
+            handle_moved_from(
+                actual_file_path=actual_file_path, mirror_file_path=mirror_file_path
+            )
+
+        if EVENTS.MOVED_TO in events:
+            handle_moved_to(
+                actual_file_path=actual_file_path,
+                mirror_file_path=mirror_file_path,
+                write=write,
+            )
+
+        if EVENTS.CREATE in events:
+            LOGGER.info(
+                f"File {str(actual_file_path)!r} has been created (but not by this script)!"
+            )
+            handle_created_file(
+                actual_file_path=actual_file_path,
+                mirror_file_path=mirror_file_path,
+                ignore_clean=ignore_clean,
+                write=write,
+            )
+
+        if EVENTS.DELETE in events:
+            LOGGER.info(
+                f"File {str(actual_file_path)!r} has been deleted (but not by this script)!"
+            )
+            handle_deleted_file(
+                actual_file_path=actual_file_path,
+                mirror_file_path=mirror_file_path,
+                write=write,
+            )
+
+        if EVENTS.MODIFY in events:
+            LOGGER.info(
+                f"File {str(actual_file_path)!r} has changed on disk (but not due to this script)!"
+            )
+            handle_changed_file(
+                actual_file_path=actual_file_path,
+                mirror_file_path=mirror_file_path,
+                write=write,
+                ignore_clean=ignore_clean,
+            )
+
+
+def main():
+    args = parse_args()
+    init_logging(args.output)
+    if args.verbose:
+        LOGGER.setLevel(logging.DEBUG)
+        FILE_LOGGER.setLevel(logging.DEBUG)
+    else:
+        LOGGER.setLevel(logging.INFO)
+        FILE_LOGGER.setLevel(logging.INFO)
+
+    assert LOGGER.handlers, f"No handlers specificed for logger {LOGGER}"
+
+    if sys.stdin.isatty():
+        # If stdin is a terminal, run inotifywait ourselves
+        inotifywait_output = inotifywait(args.actual_path, args.events)
+    else:
+        # If stdin is a pipe, assume that we are being piped the output
+        # of inotifywait
+        inotifywait_output = sys.stdin
+
+    git_config_watch(
+        inotifywait_output,
+        mirror_path=args.mirror_path,
+        write=args.write,
+        ignore_clean=not args.no_ignore_clean,
+    )
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument("--actual-path")
+    parser.add_argument(
+        "--mirror-path", help="The path to the mirror we are diff'ing against"
+    )
+    parser.add_argument(
+        "--write",
+        action="store_true",
+        help="Enables updating the mirror-path, if given. If this is not given "
+        "then no mirror files will be altered (--output will still create files "
+        "even if this isn't given, however)",
+    )
+    parser.add_argument(
+        "--output", help="The path to the output file that diffs will be written to"
+    )
+    parser.add_argument(
+        "--no-ignore-clean",
+        action="store_true",
+        help="Consider changed files even if they have not diverged from git",
+    )
+    parser.add_argument("-v", "--verbose", action="store_true")
+    parser.add_argument(
+        "-e",
+        "--events",
+        nargs="+",
+        help="Listen for specific event(s) only. If omitted, all events are listened for. ",
+        default=(
+            # "access",
+            "modify",
+            # "attrib",
+            # "close_write",
+            # "close_nowrite",
+            # "close",
+            # "open",
+            # "moved_to",
+            # "moved_from",
+            "move",
+            # "move_self",
+            "create",
+            "delete",
+            # "delete_self",
+            # "unmount",
+        ),
+        # All choices are below, but I've commented out the unimplemented ones
+        # (the ones without a handler defined)
+        choices=(
+            # "access",
+            "modify",
+            # "attrib",
+            # "close_write",
+            # "close_nowrite",
+            # "close",
+            # "open",
+            # "moved_to",
+            # "moved_from",
+            "move",
+            # "move_self",
+            "create",
+            "delete",
+            # "delete_self",
+            # "unmount",
+        ),
+    )
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    main()
