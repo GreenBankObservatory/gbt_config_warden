@@ -13,7 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from cwp_logging import init_logging
+from gbt_config_logging import init_logging
 
 LOGGER = logging.getLogger(os.path.basename(__file__))
 FILE_LOGGER = logging.getLogger(f"{os.path.basename(__file__)}_file")
@@ -74,6 +74,7 @@ def dostuff(file, mirror_path=None, write=False, output=None):
         LOGGER.debug(f"{watched_filename=}")
         LOGGER.debug(f"{event_names=}")
         LOGGER.debug(f"{event_filename=}")
+        actual_file_path = Path(watched_filename, event_filename)
         if mirror_path:
             blurb = f"mirror at {str(actual_file_path.parent.absolute())!r}"
         else:
@@ -82,7 +83,6 @@ def dostuff(file, mirror_path=None, write=False, output=None):
             )
             blurb = f"git at {git_repo_path!r}"
         LOGGER.info(f"File {event_filename!r} has changed (vs {blurb})!")
-        actual_file_path = Path(watched_filename, event_filename)
         if mirror_path:
             mirror_file_path = Path(mirror_path, event_filename)
             if not actual_file_path.exists():
@@ -137,6 +137,7 @@ def main():
     # logging.getLogger('root').setLevel(logging.DEBUG)
     LOGGER.setLevel(logging.DEBUG)
     print(f"{LOGGER.handlers=}")
+    assert LOGGER.handlers, f"No handlers specificed for logger {LOGGER}"
 
     if args.path:
         with open(args.path) as file:

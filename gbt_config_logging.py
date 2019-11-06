@@ -37,12 +37,17 @@ CONFIG = {
     },
     "loggers": {
         # 'root': {'level': 'DEBUG'},
-        "cwp": {
+        "gbt_config_watch": {
             "handlers": ["console", "file_debug"],
             # Make sure we don't miss anything...
             "level": "DEBUG",
         },
-        "cwp_file": {
+        "gbt_config_notify": {
+            "handlers": ["console", "file_debug"],
+            # Make sure we don't miss anything...
+            "level": "DEBUG",
+        },
+        "gbt_config_watch_file": {
             "handlers": ["file_std"],
             "level": "DEBUG",
         }

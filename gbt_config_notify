@@ -12,11 +12,17 @@ import smtplib
 import socket
 import sys
 import traceback
+import os
+import logging
 
-DEBUG = True
+from gbt_config_logging import init_logging
+
+LOGGER = logging.getLogger("gbt_config_notify")
+
+init_logging(None)
 
 
-def email(subject, text, to, from_email, reply_to=None, smtp_server="smtp.gb.nrao.edu"):
+def email(subject, text, to, from_email, reply_to=None, smtp_server="smtp.gb.nrao.edu", dry_run=False):
     """Send an email to SDD with given subject and text"""
 
     message = EmailMessage()
@@ -26,42 +32,52 @@ def email(subject, text, to, from_email, reply_to=None, smtp_server="smtp.gb.nra
     message["Reply-To"] = reply_to if reply_to else from_email
 
     message.set_content(text)
-    if not DEBUG:
+    if not dry_run:
         try:
             smtplib.SMTP(smtp_server).send_message(message)
         except socket.gaierror:
             full_traceback = traceback.format_exc()
-            print(
+            LOGGER.error(
                 f"Failed to send email to '{message['To']}'. Please manually send "
                 f"an email to '{message['To']}' to let them know that this is broken. "
                 "Include the following information:\n"
                 f"{'='*80}\n{full_traceback}\n{'='*80}",
-                file=sys.stderr,
             )
+        else:
+            LOGGER.debug("Successfully sent email!")
     else:
-        print("\nThe following email would have been sent if DEBUG were False:")
-        print("+" * 80)
-        print(message)
-        print("+" * 80)
+        LOGGER.debug("\nThe following email would have been sent if DEBUG were False:")
+        LOGGER.debug("+" * 80)
+        LOGGER.debug(message)
+        LOGGER.debug("+" * 80)
 
 
-def cwp_email(log_path):
-    with open(log_path) as log_file:
-        # TODO: Add more details
-        body = log_file.read()
-
-    now = datetime.now()
-    shutil.move(log_path, f"{log_path}.{now}.log")
-
-
-    email(
-        subject="Stuff has changed!", text=body, to="to_email", from_email="from_email"
-    )
+def cwp_email(log_path, dry_run):
+    try:
+        with open(log_path) as log_file:
+            # TODO: Add more details
+            body = log_file.read()
+    except FileNotFoundError as error:
+        body = None
+        LOGGER.debug("Log file missing! This probably doesn't matter", exc_info=True)
+    else:
+        if body:
+            now = datetime.now()
+            new_log_path = f"{log_path}.{now}.log"
+            shutil.move(log_path, new_log_path)
+            LOGGER.info(f"Successfully moved log file from {log_path} to {new_log_path}")
+            email(
+                subject="Changes detected in GBT Config", text=body, to="tchamber@nrao.edu", from_email="monctrl@nrao.edu", reply_to="tchamber@nrao.edu", dry_run=dry_run
+            )
+        else:
+            LOGGER.debug("Nothing has changed!")
 
 
 def main():
     args = parse_args()
-    cwp_email(args.log_path)
+    LOGGER.setLevel(logging.DEBUG)
+    assert LOGGER.handlers, f"No handlers specificed for logger {LOGGER}"
+    cwp_email(args.log_path, args.dry_run)
 
 
 def parse_args():
@@ -69,6 +85,7 @@ def parse_args():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument("log_path")
+    parser.add_argument("-D", "--dry-run", action="store_true", help="Don't send email; instead print it to stdout")
     return parser.parse_args()
 
 
