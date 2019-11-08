@@ -89,7 +89,7 @@ def gbt_config_notify(gbt_config_change_log_path, dry_run, to, from_email, reply
                 )
             email(
                 subject=(
-                    f"{num_files_changed} changes have been made across "
+                    f"GBT Config Warden: {num_files_changed} changes have been made across "
                     f"{num_unique_files_changed} files in GBT Config"
                 ),
                 text=body,
@@ -105,7 +105,11 @@ def gbt_config_notify(gbt_config_change_log_path, dry_run, to, from_email, reply
 def main():
     args = parse_args()
     init_logging(args.log_path)
-    LOGGER.setLevel(logging.DEBUG)
+    if args.verbose:
+        LOGGER.setLevel(logging.DEBUG)
+    else:
+        LOGGER.setLevel(logging.INFO)
+
     assert LOGGER.handlers, f"No handlers specificed for logger {LOGGER}"
     gbt_config_notify(
         args.gbt_config_change_log_path,
@@ -133,6 +137,7 @@ def parse_args():
         action="store_true",
         help="Don't send email; instead print it to stdout",
     )
+    parser.add_argument("-v", "--verbose", action="store_true")
     return parser.parse_args()
 
 
