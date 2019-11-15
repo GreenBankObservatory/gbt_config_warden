@@ -70,6 +70,7 @@ def gbt_config_notify(gbt_config_change_log_path, dry_run, to, from_email, reply
         body = None
         LOGGER.debug("Log file missing! This probably doesn't matter", exc_info=True)
     else:
+        LOGGER.debug(f"Log file contents\n{'*'*80}{log_file_text}\n{'*'*80}")
         if log_file_text:
             num_unique_files_changed, num_files_changed, body = render_email_body(
                 log_file_text
