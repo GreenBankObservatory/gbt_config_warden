@@ -41,6 +41,17 @@ LAST_ACTUAL_MOVED_FROM = None
 LAST_MIRROR_MOVED_FROM = None
 
 
+def check_for_nfs(path):
+    fstype = check_output(["df", "--output=fstype", path]).splitlines()[1:]
+    assert len(fstype) == 1
+    fstype = fstype[0].strip()
+    if fstype == "nfs":
+        raise ValueError(
+            f"{path!r} is being accessed over NFS. inotifywait should not be run this way. "
+            "Use --force to skip this check, but it will almost certainly cause issues."
+        )
+
+
 def inotifywait(path, events):
     """Spawn inotifywait process; return its stdout pipe"""
     # Build list of format ["--event", <event>, "--event", <event>, ...]
@@ -75,6 +86,7 @@ def get_is_tracked(actual_path):
         LOGGER.debug(f"File {actual_path} has never been committed to git!")
         return False
     return True
+
 
 def get_git_diff(actual_path, mirror_path=None):
     """Perform git diff on given path(s)"""
@@ -354,7 +366,10 @@ def main():
 
     assert LOGGER.handlers, f"No handlers specificed for logger {LOGGER}"
 
+
     if sys.stdin.isatty():
+        if not args.force:
+            check_for_nfs(args.actual_path)
         # If stdin is a terminal, run inotifywait ourselves
         inotifywait_output = inotifywait(args.actual_path, args.events)
     else:
@@ -374,9 +389,18 @@ def parse_args():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    parser.add_argument("--actual-path")
+    # TODO: This is kinda stupid actually, I should probably fix this
+    if sys.stdin.isatty():
+        parser.add_argument(
+            "--actual-path",
+            help="The path to watch. NOTE: This argument is ONLY ADDED if "
+            "no pipe is detected. If input is piped to stdin, this argument is not allowed!",
+            required=True,
+        )
     parser.add_argument(
-        "--mirror-path", help="The path to the mirror we are diff'ing against"
+        "--mirror-path",
+        help="The path to the mirror we are diff'ing against",
+        required=True,
     )
     parser.add_argument(
         "--write",
@@ -393,6 +417,7 @@ def parse_args():
         action="store_true",
         help="Consider changed files even if they have not diverged from git",
     )
+    parser.add_argument("--force", action="store_true", help="Skip NFS check")
     parser.add_argument("-v", "--verbose", action="store_true")
     parser.add_argument(
         "-e",
@@ -436,6 +461,7 @@ def parse_args():
             # "unmount",
         ),
     )
+
     return parser.parse_args()
 
 
