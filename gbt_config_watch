@@ -59,7 +59,7 @@ def inotifywait(path, events, excludes=None):
     if excludes is None:
         excludes = []
     else:
-        excludes = [f"@{exclude_path}" for exclude_path in excludes]
+        excludes = [arg for exclude in excludes for arg in ("--exclude", exclude)]
     args = ["inotifywait", "--monitor", "--csv", *event_args, *excludes, path]
     LOGGER.debug(f"Spawning: {args}")
     n = subprocess.Popen(args, stdout=subprocess.PIPE, text=True)
@@ -467,7 +467,8 @@ def parse_args():
     parser.add_argument(
         "--exclude",
         nargs="+",
-        help="List of file paths NOT to watch. Must be full paths!",
+        help="Exclude all events on files matching the extended regular expression <PATTERN>.",
+        metavar="<PATTERN>"
     )
 
     return parser.parse_args()
