@@ -52,11 +52,15 @@ def check_for_nfs(path):
         )
 
 
-def inotifywait(path, events):
+def inotifywait(path, events, excludes=None):
     """Spawn inotifywait process; return its stdout pipe"""
     # Build list of format ["--event", <event>, "--event", <event>, ...]
     event_args = [arg for event in events for arg in ("--event", event)]
-    args = ["inotifywait", "--monitor", "--csv", *event_args, path]
+    if excludes is None:
+        excludes = []
+    else:
+        excludes = [f"@{exclude_path}" for exclude_path in excludes]
+    args = ["inotifywait", "--monitor", "--csv", *event_args, *excludes, path]
     LOGGER.debug(f"Spawning: {args}")
     n = subprocess.Popen(args, stdout=subprocess.PIPE, text=True)
     return n.stdout
@@ -366,12 +370,11 @@ def main():
 
     assert LOGGER.handlers, f"No handlers specificed for logger {LOGGER}"
 
-
     if sys.stdin.isatty():
         if not args.force:
             check_for_nfs(args.actual_path)
         # If stdin is a terminal, run inotifywait ourselves
-        inotifywait_output = inotifywait(args.actual_path, args.events)
+        inotifywait_output = inotifywait(args.actual_path, args.events, args.exclude)
     else:
         # If stdin is a pipe, assume that we are being piped the output
         # of inotifywait
@@ -460,6 +463,11 @@ def parse_args():
             # "delete_self",
             # "unmount",
         ),
+    )
+    parser.add_argument(
+        "--exclude",
+        nargs="+",
+        help="List of file paths NOT to watch. Must be full paths!",
     )
 
     return parser.parse_args()
