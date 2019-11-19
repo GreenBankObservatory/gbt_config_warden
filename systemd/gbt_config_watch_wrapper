@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Intended to run under systemd as monctrl@gbtdata
+
+/opt/local/bin/python3 /home/gbt1/gbt_config_warden/gbt_config_watch \
+--actual-path /home/gbt/etc/config \
+--mirror-path /home/sandboxes/monctrl/gbt_config_mirror \
+--write \
+--output /home/sandboxes/monctrl/gbt_config_warden \
+--verbose \
+--exclude '(gbtstatus|scanNumber)\.txt'
