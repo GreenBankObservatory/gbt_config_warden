@@ -370,7 +370,7 @@ def main():
 
     assert LOGGER.handlers, f"No handlers specificed for logger {LOGGER}"
 
-    if sys.stdin.isatty():
+    if sys.stdin.isatty() or args.no_stdin:
         if not args.force:
             check_for_nfs(args.actual_path)
         # If stdin is a terminal, run inotifywait ourselves
@@ -392,14 +392,11 @@ def parse_args():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
-    # TODO: This is kinda stupid actually, I should probably fix this
-    if sys.stdin.isatty():
-        parser.add_argument(
-            "--actual-path",
-            help="The path to watch. NOTE: This argument is ONLY ADDED if "
-            "no pipe is detected. If input is piped to stdin, this argument is not allowed!",
-            required=True,
-        )
+    parser.add_argument(
+        "--actual-path",
+        help="The path to watch. If input is piped to stdin, this argument does nothing!",
+        required=True,
+    )
     parser.add_argument(
         "--mirror-path",
         help="The path to the mirror we are diff'ing against",
@@ -411,6 +408,11 @@ def parse_args():
         help="Enables updating the mirror-path, if given. If this is not given "
         "then no mirror files will be altered (--output will still create files "
         "even if this isn't given, however)",
+    )
+    parser.add_argument(
+        "--no-stdin",
+        action="store_true",
+        help="If given, stdin is ignore (i.e. incoming pipe is ignored)",
     )
     parser.add_argument(
         "--output", help="The path to the output file that diffs will be written to"
