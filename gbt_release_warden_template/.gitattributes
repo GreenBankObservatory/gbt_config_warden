@@ -1,0 +1,9 @@
+# Mark EVERYTHING binary
+* binary
+
+### From here down, WHITELIST things that we want to explicitly mark as text
+
+
+*.py text diff
+.gitattributes text diff
+.gitignore text diff

@@ -1,0 +1,6 @@
+#!/bin/bash
+
+scriptdir="$(dirname "$(readlink -f "$0")")"
+if [[ -z "$1" ]]; then
+	rsync -av "$scriptdir"/gbt_release_warden_template/ monctrl@"$HOSTNAME":"$1"
+fi
