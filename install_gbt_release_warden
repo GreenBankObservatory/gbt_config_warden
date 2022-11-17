@@ -2,5 +2,19 @@
 
 scriptdir="$(dirname "$(readlink -f "$0")")"
 if [[ -z "$1" ]]; then
-	rsync -av "$scriptdir"/gbt_release_warden_template/ monctrl@"$HOSTNAME":"$1"
+    echo "usage: install_gbt_release_warden PATH" >&2
+    exit 1
 fi
+
+if [[ -e "$1"/.git ]]; then
+    echo "git repo already exists in $1; bailing out" >&2
+    exit 1
+fi
+
+ssh monctrl@"$HOSTNAME" "cd $1; git init"
+echo Copying files to "$1"...
+rsync -av "$scriptdir"/gbt_release_warden_template/ monctrl@"$HOSTNAME":"$1"
+echo "Staging/committing all files (will take a little while)"
+ssh monctrl@"$HOSTNAME" "cd $1; git add -A; git commit -m 'Initial commit'"
+echo "Done!"
+ssh monctrl@"$HOSTNAME" "cd $1; git status"
