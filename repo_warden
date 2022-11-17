@@ -53,6 +53,8 @@ if [[ -z "$REPORT_NAME" ]]; then
     die "REPORT_NAME must be defined!"
 fi
 
+INCLUDE_UNTRACKED="${INCLUDE_UNTRACKED:-normal}"
+
 # cd to given path
 cd "${repo}"
 
@@ -63,12 +65,12 @@ body_file=$(mktemp --suffix=.body_file)
 last_commit_info="$(git log -1 --format='Last commit: %cd by %an')"
 
 # If the repo is dirty...
-if [ -n "$(git status --untracked-files=no --porcelain)" ]; then
+if [ -n "$(git status --untracked-files="$INCLUDE_UNTRACKED" --porcelain)" ]; then
     {
         echo -e "${repo} is dirty!\n"
         echo "${last_commit_info}"
         echo -e "\n--- Current status ---\n"
-        git status --untracked-files=no --short
+        git status --untracked-files="$INCLUDE_UNTRACKED" --short
         echo -e "\n--- Differences since last commit ---\n"
         git diff
     } > "${body_file}"

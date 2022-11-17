@@ -4,4 +4,4 @@
 ###
 
 scriptdir="$(dirname "$(readlink -f "$0")")"
-REPORT_NAME="GBT Config Warden" "$scriptdir"/repo_warden "$@"
+REPORT_NAME="GBT Config Warden" INCLUDE_UNTRACKED=no "$scriptdir"/repo_warden "$@"
