@@ -13,5 +13,5 @@ if [ "$(get_rhel_version)" == 6 ]; then
     echo "ERROR: You must checkout from a non-RHEL6 host!" >&2
     exit 1
 else
-    python3 "$scriptdir/post_checkout.py" "$@"
+    /opt/local/bin/python3 "$scriptdir/post_checkout.py" "$@"
 fi
