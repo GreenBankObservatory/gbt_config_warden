@@ -63,12 +63,16 @@ body_file=$(mktemp --suffix=.body_file)
 
 # Store information about the most recent commit
 last_commit_info="$(git log -1 --format='Last commit: %cd by %an')"
-
+git_status="$(git status --untracked-files="$INCLUDE_UNTRACKED" --porcelain)"
 # If the repo is dirty...
-if [ -n "$(git status --untracked-files="$INCLUDE_UNTRACKED" --porcelain)" ]; then
+if [ -n "$git_status" ]; then
     {
-        echo -e "${repo} is dirty!\n"
-        echo "${last_commit_info}"
+        echo -e "${repo} is dirty! ${last_commit_info}"
+        if grep -q '^??' <<< "$git_status"; then
+            echo -e "\n--- Untracked files detected ---\n\nTo remove safely, consider doing something like:"
+            echo -e '  $ git stash save "description of untracked files"\n'
+            echo -e "This will delete the files, but provide a way to recover them in the future if needed"
+        fi
         echo -e "\n--- Current status ---\n"
         git status --untracked-files="$INCLUDE_UNTRACKED" --short
         echo -e "\n--- Differences since last commit ---\n"
